@@ -4,6 +4,7 @@ import Clock from "react-live-clock";
 import Forcast from "./forcast";
 import loader from "./images/WeatherIcons.gif";
 import ReactAnimatedWeather from "react-animated-weather";
+
 const dateBuilder = (d) => {
   let months = [
     "January",
@@ -36,40 +37,39 @@ const dateBuilder = (d) => {
 
   return `${day}, ${date} ${month} ${year}`;
 };
+
 const defaults = {
   color: "white",
   size: 112,
   animate: true,
 };
+
 class Weather extends React.Component {
   state = {
     lat: undefined,
     lon: undefined,
-    errorMessage: undefined,
-    temperatureC: undefined,
-    temperatureF: undefined,
     city: undefined,
     country: undefined,
+    temperatureC: undefined,
+    temperatureF: undefined,
     humidity: undefined,
     description: undefined,
     icon: "CLEAR_DAY",
-    sunrise: undefined,
-    sunset: undefined,
-    errorMsg: undefined,
+    main: undefined,
+    errorMessage: undefined,
+    searchCity: "",
   };
 
   componentDidMount() {
     if (navigator.geolocation) {
       this.getPosition()
-        //If user allow location service then will fetch data & send it to get-weather function.
         .then((position) => {
-          this.getWeather(position.coords.latitude, position.coords.longitude);
+          this.getWeatherByCoords(position.coords.latitude, position.coords.longitude);
         })
         .catch((err) => {
-          //If user denied location service then standard location weather will le shown on basis of latitude & latitude.
-          this.getWeather(28.67, 77.22);
+          this.getWeatherByCoords(28.67, 77.22); // Default location
           alert(
-            "You have disabled location service. Allow 'This APP' to access your location. Your current location will be used for calculating Real time weather."
+            "You have disabled location services. Allow this app to access your location for real-time weather."
           );
         });
     } else {
@@ -77,7 +77,7 @@ class Weather extends React.Component {
     }
 
     this.timerID = setInterval(
-      () => this.getWeather(this.state.lat, this.state.lon),
+      () => this.getWeatherByCoords(this.state.lat, this.state.lon),
       600000
     );
   }
@@ -86,14 +86,13 @@ class Weather extends React.Component {
     clearInterval(this.timerID);
   }
 
-
-
   getPosition = (options) => {
     return new Promise(function (resolve, reject) {
       navigator.geolocation.getCurrentPosition(resolve, reject, options);
     });
   };
-  getWeather = async (lat, lon) => {
+
+  getWeatherByCoords = async (lat, lon) => {
     try {
       const api_call = await fetch(
         `${apiKeys.base}weather?lat=${lat}&lon=${lon}&units=metric&APPID=${apiKeys.key}`
@@ -101,69 +100,110 @@ class Weather extends React.Component {
       const data = await api_call.json();
 
       if (!data.main || !data.weather) {
-        console.error("Unexpected API response:", data);
         this.setState({ errorMessage: "Unable to fetch weather data." });
         return;
       }
 
       this.setState({
-        lat: lat,
-        lon: lon,
+        lat,
+        lon,
         city: data.name,
+        country: data.sys.country,
         temperatureC: Math.round(data.main.temp),
         temperatureF: Math.round(data.main.temp * 1.8 + 32),
         humidity: data.main.humidity,
         main: data.weather[0].main,
-        country: data.sys.country,
+        icon: this.getWeatherIcon(data.weather[0].main),
       });
-
-      switch (data.weather[0].main) {
-        case "Haze":
-          this.setState({ icon: "CLEAR_DAY" });
-          break;
-        case "Clouds":
-          this.setState({ icon: "CLOUDY" });
-          break;
-        case "Rain":
-          this.setState({ icon: "RAIN" });
-          break;
-        case "Snow":
-          this.setState({ icon: "SNOW" });
-          break;
-        case "Dust":
-          this.setState({ icon: "WIND" });
-          break;
-        case "Drizzle":
-          this.setState({ icon: "SLEET" });
-          break;
-        case "Fog":
-        case "Smoke":
-          this.setState({ icon: "FOG" });
-          break;
-        case "Tornado":
-          this.setState({ icon: "WIND" });
-          break;
-        default:
-          this.setState({ icon: "CLEAR_DAY" });
-      }
     } catch (error) {
-      console.error("Error fetching weather data:", error);
       this.setState({ errorMessage: "Error fetching weather data." });
     }
   };
 
+  getWeatherByCity = async (city) => {
+    try {
+      const api_call = await fetch(
+        `${apiKeys.base}current?access_key=${apiKeys.key}&query=${city}`
+      );
+      const data = await api_call.json();
+  
+      if (!data.current) {
+        this.setState({ errorMessage: "City not found." });
+        return;
+      }
+  
+      this.setState({
+        lat: data.location.lat,
+        lon: data.location.lon,
+        city: data.location.name,
+        country: data.location.country,
+        temperatureC: Math.round(data.current.temperature),
+        temperatureF: Math.round(data.current.temperature * 1.8 + 32),
+        humidity: data.current.humidity,
+        main: data.current.weather_descriptions[0],
+        icon: this.getWeatherIcon(data.current.weather_descriptions[0]),
+      });
+    } catch (error) {
+      this.setState({ errorMessage: "Error fetching weather data." });
+    }
+  };
+  
+
+  getWeatherIcon = (weatherMain) => {
+    switch (weatherMain) {
+      case "Sunny":
+      case "Clear":
+        return "CLEAR_DAY";
+      case "Partly cloudy":
+        return "PARTLY_CLOUDY_DAY";
+      case "Cloudy":
+        return "CLOUDY";
+      case "Rain":
+      case "Light rain":
+      case "Heavy rain":
+        return "RAIN";
+      case "Snow":
+        return "SNOW";
+      case "Fog":
+      case "Mist":
+        return "FOG";
+      default:
+        return "CLEAR_DAY";
+    }
+  };
+  
+
+  handleSearchChange = (event) => {
+    this.setState({ searchCity: event.target.value });
+  };
+
+  handleSearchSubmit = (event) => {
+    event.preventDefault();
+    this.getWeatherByCity(this.state.searchCity);
+  };
 
   render() {
     if (this.state.temperatureC) {
       return (
         <React.Fragment>
+          <div className="search-bar">
+            <form onSubmit={this.handleSearchSubmit}>
+              <input
+                type="text"
+                placeholder="Search city..."
+                value={this.state.searchCity}
+                onChange={this.handleSearchChange}
+              />
+              <button type="submit">Search</button>
+            </form>
+          </div>
+
           <div className="city">
             <div className="title">
               <h2>{this.state.city}</h2>
               <h3>{this.state.country}</h3>
             </div>
             <div className="mb-icon">
-              {" "}
               <ReactAnimatedWeather
                 icon={this.state.icon}
                 color={defaults.color}
@@ -174,7 +214,6 @@ class Weather extends React.Component {
             </div>
             <div className="date-time">
               <div className="dmy">
-                <div id="txt"></div>
                 <div className="current-time">
                   <Clock format="HH:mm:ss" interval={1000} ticking={true} />
                 </div>
@@ -184,8 +223,6 @@ class Weather extends React.Component {
                 <p>
                   {this.state.temperatureC}°<span>C</span>
                 </p>
-                {/* <span className="slash">/</span>
-                {this.state.temperatureF} &deg;F */}
               </div>
             </div>
           </div>
@@ -200,8 +237,7 @@ class Weather extends React.Component {
             Detecting your location
           </h3>
           <h3 style={{ color: "white", marginTop: "10px" }}>
-            Your current location wil be displayed on the App <br></br> & used
-            for calculating Real time weather.
+            Your current location will be displayed on the App <br /> & used for calculating real-time weather.
           </h3>
         </React.Fragment>
       );
